@@ -89,8 +89,7 @@ public class SJFScheduler {
             // 6) Completion
             if (best.remainingTime == 0) {
                 best.completionTime = time;
-                best.turnaroundTime = best.completionTime - best.arrivalTime;
-                best.waitingTime = best.turnaroundTime - best.burstTime;
+                Metrics.calculateAllMetrics(best);
                 done++;
                 current = null;
             }
@@ -112,16 +111,9 @@ public class SJFScheduler {
     }
 
     private void computeAverages() {
-        int n = processes.size();
-        double w = 0, t = 0, r = 0;
-        for (Process p : processes) {
-            w += p.waitingTime;
-            t += p.turnaroundTime;
-            r += p.responseTime;
-        }
-        avgWaitingTime = w / n;
-        avgTurnaroundTime = t / n;
-        avgResponseTime = r / n;
+        avgWaitingTime = Metrics.calculateAverageWaitingTime(processes);
+        avgTurnaroundTime = Metrics.calculateAverageTurnaroundTime(processes);
+        avgResponseTime = Metrics.calculateAverageResponseTime(processes);
     }
 
     // ---------- Getters (for teammates: metrics/output + GUI) ----------

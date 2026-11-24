@@ -5,6 +5,7 @@ public class Process {
     int burstTime;
     int remainingTime;
     int priority;
+    int lastProcessedTime;
 
     // Scheduling metrics
     int completionTime;
