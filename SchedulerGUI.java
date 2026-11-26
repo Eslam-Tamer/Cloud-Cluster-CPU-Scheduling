@@ -1,11 +1,12 @@
-
-import java.awt.*;
-import java.util.*;
-import java.util.List;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
+import java.awt.*;
+import java.util.*;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SchedulerGUI extends JFrame {
 
@@ -22,6 +23,18 @@ public class SchedulerGUI extends JFrame {
     private JLabel avgLabel;
     private JTextArea logArea;
     private JTabbedPane rightTabs;
+
+    private static class QueueEntry {
+        final int id;
+        final int remaining;
+        final int priority;
+
+        QueueEntry(int id, int remaining, int priority) {
+            this.id = id;
+            this.remaining = remaining;
+            this.priority = priority;
+        }
+    }
 
     public SchedulerGUI() {
         setTitle("CS241 - Cloud-Cluster CPU Scheduling Simulator");
@@ -44,7 +57,6 @@ public class SchedulerGUI extends JFrame {
     private JPanel buildTopPanel() {
         JPanel top = new JPanel(new BorderLayout(10, 10));
 
-        // Left: Process Input Table
         JPanel processPanel = new JPanel(new BorderLayout(5, 5));
         processPanel.setBorder(new TitledBorder("Processes"));
 
@@ -72,9 +84,7 @@ public class SchedulerGUI extends JFrame {
         });
         removeBtn.addActionListener(e -> {
             int row = inputTable.getSelectedRow();
-            if (row >= 0) {
-                inputModel.removeRow(row);
-            }
+            if (row >= 0) inputModel.removeRow(row);
         });
         tc1Btn.addActionListener(e -> loadTestCase1());
         tc2Btn.addActionListener(e -> loadTestCase2());
@@ -85,7 +95,6 @@ public class SchedulerGUI extends JFrame {
         btnRow.add(tc2Btn);
         processPanel.add(btnRow, BorderLayout.SOUTH);
 
-        // Right: Scheduler Configuration
         JPanel configPanel = new JPanel(new GridBagLayout());
         configPanel.setBorder(new TitledBorder("Scheduler Settings"));
         GridBagConstraints gbc = new GridBagConstraints();
@@ -93,8 +102,8 @@ public class SchedulerGUI extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         algoBox = new JComboBox<>(new String[]{
-            "Preemptive SJF",
-            "Adaptive Container Scheduler (ACS)"
+                "Preemptive SJF",
+                "Adaptive Container Scheduler (ACS)"
         });
         csSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 20, 1));
         qSpinner = new JSpinner(new SpinnerNumberModel(3, 1, 50, 1));
@@ -108,26 +117,22 @@ public class SchedulerGUI extends JFrame {
         qSpinner.setEnabled(false);
         agingSpinner.setEnabled(false);
 
-        gbc.gridx = 0;
-        gbc.gridy = 0;
+        gbc.gridx = 0; gbc.gridy = 0;
         configPanel.add(new JLabel("Algorithm:"), gbc);
         gbc.gridx = 1;
         configPanel.add(algoBox, gbc);
 
-        gbc.gridx = 0;
-        gbc.gridy = 1;
+        gbc.gridx = 0; gbc.gridy = 1;
         configPanel.add(new JLabel("Context Switch (CS):"), gbc);
         gbc.gridx = 1;
         configPanel.add(csSpinner, gbc);
 
-        gbc.gridx = 0;
-        gbc.gridy = 2;
+        gbc.gridx = 0; gbc.gridy = 2;
         configPanel.add(new JLabel("Time Quantum (Q):"), gbc);
         gbc.gridx = 1;
         configPanel.add(qSpinner, gbc);
 
-        gbc.gridx = 0;
-        gbc.gridy = 3;
+        gbc.gridx = 0; gbc.gridy = 3;
         configPanel.add(new JLabel("Aging Interval:"), gbc);
         gbc.gridx = 1;
         configPanel.add(agingSpinner, gbc);
@@ -137,9 +142,7 @@ public class SchedulerGUI extends JFrame {
         runBtn.setForeground(new Color(20, 115, 55));
         runBtn.addActionListener(e -> runSimulation());
 
-        gbc.gridx = 0;
-        gbc.gridy = 4;
-        gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
         configPanel.add(runBtn, gbc);
 
         top.add(processPanel, BorderLayout.CENTER);
@@ -165,7 +168,6 @@ public class SchedulerGUI extends JFrame {
         JPanel bottom = new JPanel(new GridLayout(1, 2, 10, 0));
         bottom.setPreferredSize(new Dimension(1040, 280));
 
-        // Left: Metrics Table
         JPanel metricsPanel = new JPanel(new BorderLayout(5, 5));
         metricsPanel.setBorder(new TitledBorder("Performance Metrics"));
 
@@ -186,7 +188,6 @@ public class SchedulerGUI extends JFrame {
         avgLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
         metricsPanel.add(avgLabel, BorderLayout.SOUTH);
 
-        // Right: Tabbed View (Demotion Matrix Table + Text Log)
         rightTabs = new JTabbedPane();
 
         matrixModel = new DefaultTableModel(
@@ -205,8 +206,7 @@ public class SchedulerGUI extends JFrame {
         matrixTable.getColumnModel().getColumn(2).setPreferredWidth(250);
         matrixTable.getColumnModel().getColumn(3).setPreferredWidth(270);
 
-        JScrollPane matrixScroll = new JScrollPane(matrixTable);
-        rightTabs.addTab("Heuristic Demotion Matrix", matrixScroll);
+        rightTabs.addTab("Heuristic Demotion Matrix", new JScrollPane(matrixTable));
 
         logArea = new JTextArea();
         logArea.setEditable(false);
@@ -287,7 +287,7 @@ public class SchedulerGUI extends JFrame {
                 }
                 rightTabs.setSelectedIndex(1);
             } else {
-                timeline = runACSWithMatrix(processes, cs, q, aging, log);
+                timeline = runUsingASC(processes, cs, q, aging, log);
                 avgW = Metrics.calculateAverageWaitingTime(processes);
                 avgT = Metrics.calculateAverageTurnaroundTime(processes);
                 avgR = Metrics.calculateAverageResponseTime(processes);
@@ -300,8 +300,8 @@ public class SchedulerGUI extends JFrame {
             metricsModel.setRowCount(0);
             for (Process p : processes) {
                 metricsModel.addRow(new Object[]{
-                    "P" + p.id, p.arrivalTime, p.burstTime,
-                    p.completionTime, p.turnaroundTime, p.waitingTime, p.responseTime
+                        "P" + p.id, p.arrivalTime, p.burstTime,
+                        p.completionTime, p.turnaroundTime, p.waitingTime, p.responseTime
                 });
             }
 
@@ -319,139 +319,149 @@ public class SchedulerGUI extends JFrame {
         }
     }
 
-    /**
-     * Executes ACS while recording the full per-timestep Demotion Matrix (Tier
-     * 1 & Tier 2).
-     */
-    private List<SJFScheduler.Segment> runACSWithMatrix(
-            List<Process> processes, int cs, int quantum, int agingInterval, StringBuilder log) {
+    /** Drives ASC.java and pulls ASC.tier1, ASC.tier2, and ASC.ganttChart directly. */
+    private List<SJFScheduler.Segment> runUsingASC(
+            List<Process> processes, int cs, int q, int aging, StringBuilder log) {
 
-        List<Process> allProcesses = new ArrayList<>(processes);
-        allProcesses.sort(Comparator.comparingInt(p -> p.arrivalTime));
+        ASC.QUANTUM = q;
+        ASC.AGING_INTERVAL = aging;
+        ASC.CONTEXT_SWITCH = cs;
+        ASC.time = 0;
+        ASC.tier1.clear();
+        ASC.tier2.clear();
+        ASC.allProcesses.clear();
+        ASC.ganttChart.setLength(0);
+        ASC.lastProcess = null;
 
-        Queue<Process> tier1 = new LinkedList<>();
-        List<Process> tier2 = new ArrayList<>();
-        List<SJFScheduler.Segment> segments = new ArrayList<>();
+        ASC.allProcesses.addAll(processes);
+        ASC.allProcesses.sort(Comparator.comparingInt(p -> p.arrivalTime));
+
         List<String[]> matrixRows = new ArrayList<>();
 
-        int time = 0;
-        Process lastProcess = null;
-
-        while (!allFinished(allProcesses)) {
-            addArrivals(allProcesses, tier1, tier2, time);
-
-            Process next = null;
-            if (!tier1.isEmpty()) {
-                next = tier1.peek();
-            } else if (!tier2.isEmpty()) {
-                next = selectTier2(tier2, time, agingInterval);
-            }
+        while (!ASC.allFinished()) {
+            ASC.addArrivals();
+            Process next = ASC.getNextProcess();
 
             if (next == null) {
                 matrixRows.add(new String[]{
-                    String.valueOf(time), "IDLE", formatQueue(tier1), formatQueue(tier2)
+                        String.valueOf(ASC.time), "IDLE", formatLiveQueue(ASC.tier1), formatLiveQueue(ASC.tier2)
                 });
-                addSegment(segments, time, time + 1, "IDLE");
-                time++;
-                lastProcess = null;
+                ASC.ganttChart.append("IDLE [").append(ASC.time).append("-").append(ASC.time + 1).append("] ");
+                ASC.time++;
+                ASC.lastProcess = null;
                 continue;
             }
 
-            // Context switch when switching between distinct processes
-            if (lastProcess != null && lastProcess != next && cs > 0) {
-                for (int c = 0; c < cs; c++) {
+            if (ASC.lastProcess != null && ASC.lastProcess != next && ASC.CONTEXT_SWITCH > 0) {
+                int csStart = ASC.time;
+                for (int c = 0; c < ASC.CONTEXT_SWITCH; c++) {
                     matrixRows.add(new String[]{
-                        String.valueOf(time),
-                        "CS (load P" + next.id + ")",
-                        formatQueue(tier1),
-                        formatQueue(tier2)
+                            String.valueOf(ASC.time),
+                            "CS (load P" + next.id + ")",
+                            formatLiveQueue(ASC.tier1),
+                            formatLiveQueue(ASC.tier2)
                     });
-                    addSegment(segments, time, time + 1, "CS");
-                    time++;
-                    addArrivals(allProcesses, tier1, tier2, time);
+                    ASC.time++;
+                    ASC.addArrivals();
                 }
+                ASC.ganttChart.append("CS [").append(csStart).append("-").append(ASC.time).append("] ");
             }
 
-            if (!tier1.isEmpty()) {
-                // Tier 1: Round Robin
-                Process p = tier1.poll();
-                if (!p.started) {
-                    p.responseTime = time - p.arrivalTime;
-                    p.started = true;
-                }
+            if (!ASC.tier1.isEmpty()) {
+                int stepStart = ASC.time;
+                List<Process> t1Before = new ArrayList<>(ASC.tier1);
+                List<Process> t2Before = new ArrayList<>(ASC.tier2);
+                int startRem = next.remainingTime;
 
-                int execTime = Math.min(quantum, p.remainingTime);
-                for (int i = 0; i < execTime; i++) {
-                    List<Process> t1Display = new ArrayList<>();
-                    t1Display.add(p);
-                    t1Display.addAll(tier1);
+                ASC.executeRR();
 
-                    matrixRows.add(new String[]{
-                        String.valueOf(time),
-                        "P" + p.id + " (Tier 1)",
-                        formatQueue(t1Display),
-                        formatQueue(tier2)
-                    });
+                int stepEnd = ASC.time;
+                for (int t = stepStart; t < stepEnd; t++) {
+                    int elapsed = t - stepStart;
+                    List<QueueEntry> t1Entries = new ArrayList<>();
+                    for (Process p : t1Before) {
+                        int rem = (p == next) ? (startRem - elapsed) : p.remainingTime;
+                        t1Entries.add(new QueueEntry(p.id, rem, p.priority));
+                    }
+                    for (Process p : ASC.allProcesses) {
+                        if (p.arrivalTime > stepStart && p.arrivalTime <= t && p != next) {
+                            boolean exists = false;
+                            for (Process existing : t1Before) {
+                                if (existing.id == p.id) {
+                                    exists = true;
+                                    break;
+                                }
+                            }
+                            if (!exists) {
+                                t1Entries.add(new QueueEntry(p.id, p.remainingTime, p.priority));
+                            }
+                        }
+                    }
 
-                    addSegment(segments, time, time + 1, "P" + p.id);
-                    time++;
-                    p.remainingTime--;
-                    p.lastProcessedTime = time;
-                    addArrivals(allProcesses, tier1, tier2, time);
-                }
-
-                if (p.remainingTime == 0) {
-                    p.completionTime = time;
-                } else {
-                    tier2.add(p);
-                }
-                lastProcess = p;
-
-            } else if (!tier2.isEmpty()) {
-                // Tier 2: Non-Preemptive Priority with Aging
-                Process p = selectTier2(tier2, time, agingInterval);
-                tier2.remove(p);
-
-                while (p.remainingTime > 0) {
-                    List<Process> t2Display = new ArrayList<>();
-                    t2Display.add(p);
-                    t2Display.addAll(tier2);
+                    List<QueueEntry> t2Entries = new ArrayList<>();
+                    for (Process p : t2Before) {
+                        t2Entries.add(new QueueEntry(p.id, p.remainingTime, p.priority));
+                    }
 
                     matrixRows.add(new String[]{
-                        String.valueOf(time),
-                        "P" + p.id + " (Tier 2)",
-                        formatQueue(tier1),
-                        formatQueue(t2Display)
+                            String.valueOf(t),
+                            "P" + next.id + " (Tier 1)",
+                            formatEntries(t1Entries),
+                            formatEntries(t2Entries)
                     });
-
-                    addSegment(segments, time, time + 1, "P" + p.id);
-                    time++;
-                    p.remainingTime--;
-                    p.lastProcessedTime = time;
-                    addArrivals(allProcesses, tier1, tier2, time);
                 }
+            } else if (!ASC.tier2.isEmpty()) {
+                int stepStart = ASC.time;
+                List<Process> t2Before = new ArrayList<>(ASC.tier2);
+                int startRem = next.remainingTime;
 
-                p.completionTime = time;
-                lastProcess = p;
+                ASC.executePriority();
+
+                int stepEnd = ASC.time;
+                for (int t = stepStart; t < stepEnd; t++) {
+                    int elapsed = t - stepStart;
+                    List<QueueEntry> t1Entries = new ArrayList<>();
+                    for (Process p : ASC.allProcesses) {
+                        if (p.arrivalTime > stepStart && p.arrivalTime <= t) {
+                            t1Entries.add(new QueueEntry(p.id, p.remainingTime, p.priority));
+                        }
+                    }
+
+                    List<QueueEntry> t2Entries = new ArrayList<>();
+                    t2Entries.add(new QueueEntry(next.id, startRem - elapsed, next.priority));
+                    for (Process p : t2Before) {
+                        if (p != next) {
+                            t2Entries.add(new QueueEntry(p.id, p.remainingTime, p.priority));
+                        }
+                    }
+
+                    matrixRows.add(new String[]{
+                            String.valueOf(t),
+                            "P" + next.id + " (Tier 2)",
+                            formatEntries(t1Entries),
+                            formatEntries(t2Entries)
+                    });
+                }
             }
         }
 
-        // Final completion state row
         matrixRows.add(new String[]{
-            String.valueOf(time), "Completed", "[Empty]", "[Empty]"
+                String.valueOf(ASC.time), "Completed", "[Empty]", "[Empty]"
         });
 
-        for (Process p : allProcesses) {
+        for (Process p : ASC.allProcesses) {
             Metrics.calculateAllMetrics(p);
         }
 
-        log.append("=== Adaptive Container Scheduler (Q=").append(quantum)
-                .append(", CS=").append(cs).append(", Aging=").append(agingInterval).append(") ===\n");
+        List<SJFScheduler.Segment> segments = parseGanttString(ASC.ganttChart.toString());
+
+        log.append("=== Adaptive Container Scheduler (Q=").append(q)
+           .append(", CS=").append(cs).append(", Aging=").append(aging).append(") ===\n");
         for (SJFScheduler.Segment s : segments) {
             log.append(s).append("\n");
         }
 
-        log.append("\n=== Heuristic Demotion Matrix (Per Time Step) ===\n");
+        log.append("\n=== Heuristic Demotion Matrix (From ASC) ===\n");
         log.append(String.format("%-6s | %-16s | %-34s | %s%n", "Time", "Running/State", "Tier 1", "Tier 2"));
         log.append("-".repeat(92)).append("\n");
 
@@ -463,81 +473,59 @@ public class SchedulerGUI extends JFrame {
         return segments;
     }
 
-    private void addArrivals(List<Process> all, Queue<Process> tier1, List<Process> tier2, int time) {
-        for (Process p : all) {
-            if (p.arrivalTime <= time && p.remainingTime > 0 && !p.started
-                    && !tier1.contains(p) && !tier2.contains(p)) {
-                tier1.add(p);
-            }
-        }
-    }
-
-    private boolean allFinished(List<Process> all) {
-        for (Process p : all) {
-            if (p.remainingTime > 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private Process selectTier2(List<Process> tier2, int time, int agingInterval) {
-        for (Process p : tier2) {
-            int waited = time - p.lastProcessedTime;
-            int agingAmount = waited / agingInterval;
-            p.priority -= agingAmount;
-            p.lastProcessedTime += agingAmount * agingInterval;
-        }
-        Process selected = null;
-        for (Process p : tier2) {
-            if (selected == null || p.priority < selected.priority) {
-                selected = p;
-            }
-        }
-        return selected;
-    }
-
-    private String formatQueue(Collection<Process> queue) {
-        if (queue.isEmpty()) {
-            return "[Empty]";
-        }
-        StringBuilder sb = new StringBuilder("[");
-        int i = 0;
+    private String formatLiveQueue(Collection<Process> queue) {
+        if (queue.isEmpty()) return "[Empty]";
+        List<QueueEntry> entries = new ArrayList<>();
         for (Process p : queue) {
-            if (i++ > 0) {
-                sb.append(", ");
-            }
-            sb.append("P").append(p.id)
-                    .append(" (rem: ").append(p.remainingTime)
-                    .append(", prio: ").append(p.priority).append(")");
+            entries.add(new QueueEntry(p.id, p.remainingTime, p.priority));
+        }
+        return formatEntries(entries);
+    }
+
+    private String formatEntries(List<QueueEntry> entries) {
+        if (entries.isEmpty()) return "[Empty]";
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < entries.size(); i++) {
+            if (i > 0) sb.append(", ");
+            QueueEntry e = entries.get(i);
+            sb.append("P").append(e.id)
+              .append(" (rem: ").append(e.remaining)
+              .append(", prio: ").append(e.priority).append(")");
         }
         sb.append("]");
         return sb.toString();
     }
 
-    private void addSegment(List<SJFScheduler.Segment> list, int start, int end, String label) {
-        if (!list.isEmpty()) {
-            SJFScheduler.Segment last = list.get(list.size() - 1);
-            if (last.label.equals(label) && last.end == start && !label.equals("CS")) {
-                last.end = end;
-                return;
+    private List<SJFScheduler.Segment> parseGanttString(String gantt) {
+        List<SJFScheduler.Segment> segments = new ArrayList<>();
+        Matcher m = Pattern.compile("(\\S+)\\s*\\[(\\d+)-(\\d+)]").matcher(gantt);
+        while (m.find()) {
+            String label = m.group(1);
+            int start = Integer.parseInt(m.group(2));
+            int end = Integer.parseInt(m.group(3));
+            if (end > start) {
+                if (!segments.isEmpty() && segments.get(segments.size() - 1).label.equals(label)
+                        && segments.get(segments.size() - 1).end == start && !label.equals("CS")) {
+                    segments.get(segments.size() - 1).end = end;
+                } else {
+                    segments.add(new SJFScheduler.Segment(start, end, label));
+                }
             }
         }
-        list.add(new SJFScheduler.Segment(start, end, label));
+        return segments;
     }
 
-    // ---------- Custom Gantt Chart Renderer ----------
+    // ---------- Gantt Chart Renderer ----------
     private static class GanttPanel extends JPanel {
-
         private List<SJFScheduler.Segment> timeline = Collections.emptyList();
         private final Map<String, Color> colorMap = new HashMap<>();
         private final Color[] palette = {
-            new Color(79, 129, 189),
-            new Color(155, 187, 89),
-            new Color(128, 100, 162),
-            new Color(75, 172, 198),
-            new Color(247, 150, 70),
-            new Color(192, 80, 77)
+                new Color(79, 129, 189),
+                new Color(155, 187, 89),
+                new Color(128, 100, 162),
+                new Color(75, 172, 198),
+                new Color(247, 150, 70),
+                new Color(192, 80, 77)
         };
 
         public void setTimeline(List<SJFScheduler.Segment> timeline) {
@@ -550,21 +538,15 @@ public class SchedulerGUI extends JFrame {
         }
 
         private Color getColorFor(String label) {
-            if (label.equals("CS")) {
-                return new Color(220, 90, 90);
-            }
-            if (label.equals("IDLE")) {
-                return new Color(190, 190, 190);
-            }
+            if (label.equals("CS")) return new Color(220, 90, 90);
+            if (label.equals("IDLE")) return new Color(190, 190, 190);
             return colorMap.computeIfAbsent(label, k -> palette[colorMap.size() % palette.length]);
         }
 
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            if (timeline == null || timeline.isEmpty()) {
-                return;
-            }
+            if (timeline == null || timeline.isEmpty()) return;
 
             Graphics2D g2 = (Graphics2D) g;
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -611,8 +593,7 @@ public class SchedulerGUI extends JFrame {
         SwingUtilities.invokeLater(() -> {
             try {
                 UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
             new SchedulerGUI().setVisible(true);
         });
     }
