@@ -22,7 +22,7 @@ public class ASC {
     static void addArrivals() {
 
         for (Process p : allProcesses) {
-
+            // remaining time check incase code has no time left
             if (p.arrivalTime <= time &&
                     p.remainingTime > 0 &&
                     !p.started &&
@@ -41,7 +41,6 @@ public class ASC {
             if (p.remainingTime > 0)
                 return false;
         }
-
         return true;
     }
 
@@ -221,6 +220,7 @@ public class ASC {
             );
         }
 
+        // to make it easier to keep up
         allProcesses.sort(
                 Comparator.comparingInt(p -> p.arrivalTime)
         );
